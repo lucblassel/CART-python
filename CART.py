@@ -1,49 +1,54 @@
 #! /usr/bin/env python3
 
-import numpy as np
 import pandas as pd
-from pandas.api.types import is_number, is_categorical, is_string_dtype, is_bool
+from pandas.api.types import is_categorical, is_string_dtype, is_bool
 from sklearn.datasets import load_iris
 
-def check_categorical(data):
-    truth = is_categorical(data) | is_string_dtype(data) | is_bool(data)
-    return truth
+
+def check_if_categorical(feature):
+    return (
+        is_categorical(feature) or
+        is_string_dtype(feature) or
+        is_bool(feature)
+        )
 
 
-class Tree:
+class Node:
 
     def get_indent(level):
         return "    " * level
 
-    def __init__(self, data, outcome, parent_node=None,
-                 value="", min_samples_leaf=3, level=0, max_depth=3):
-        """
+    def __init__(self, data, target,
+                 value="", min_samples_leaf=3, level=1, max_depth=3):
+        """initializes a Node object
+
         Arguments:
-            data {pd.DataFrame} -- data you want to train the tree on
-            outcome {String} -- name of the column containing your target feature
-            parent_node {Tree} -- parent node, if node is root then parent_node is None
-            value {String} -- value of the of the parent split for this node
-            min_samples_leaf {int} -- minimum number of cases in node
+            data {pd.DataFrame} -- training data for the tree
+            target {str} -- name of the target feature
+
+        Keyword Arguments:
+            value {str} -- value to display for node (default: {""})
+            min_samples_leaf {int} -- minimum number of examples at a leaf node (default: {3})
+            level {int} -- depth level of node in the tree (default: {1})
+            max_depth {int} -- maximum depth of the tree (default: {3})
         """
 
         self.data = data
-        self.outcome = outcome
-        self.parent_node = parent_node
+        self.target = target
         self.value = value
         self.min_samples_leaf = min_samples_leaf
         self.left = None
         self.right = None
-        self.split_on = ""
         self.prediction = None
         self.level = level
-        self.max_depth=max_depth
+        self.max_depth = max_depth
 
     def display(self):
         lines, _, _, _ = self._display_aux()
         for line in lines:
             print(line)
 
-    def _display_aux(self):
+    def _display_aux(self): # stolen from https://stackoverflow.com/a/54074933/8650928
         """Returns list of strings, width, height, and horizontal coordinate of the root."""
         # No child.
         if self.right is None and self.left is None:
@@ -92,16 +97,25 @@ class Tree:
         """takes the vector of targets as input
 
         Arguments:
-            subset {pd.DataFrame} -- [description]
+            subset {pd.DataFrame} -- the left side of the split data
 
         Returns:
             [float] -- gini index for given data subset
         """
 
-        proportions = subset[self.outcome].value_counts(normalize=True)
+        proportions = subset[self.target].value_counts(normalize=True)
         return 1 - (proportions ** 2).sum()
 
     def get_delta_i(self, subset):
+        """gets the delta i for a given split
+
+        Arguments:
+            subset {pd.DataFrame} -- the left side of the split data
+
+        Returns:
+            [float] -- delta i for this split
+        """
+
         gini = self.get_gini(self.data)
 
         left = subset
@@ -114,25 +128,6 @@ class Tree:
         sub_right = p_right * self.get_gini(right)
 
         return gini - sub_left - sub_right
-
-    def get_feature_index(self, feature):
-        """gets weighted gini index for a given feature
-
-        Arguments:
-            feature {String} -- feature for which to calculate the weighted index
-
-        Returns:
-            float -- weighted gini index
-        """
-
-        uniques = self.data[feature].value_counts(normalize=True).to_dict()
-        ginis = {}
-        for unique in uniques:
-            gini = self.get_gini(self.data[self.data[feature] == unique])
-            ginis[unique] = gini
-
-        return np.sum([ginis[unique] * uniques[unique] for unique in uniques])
-
 
     def get_categorical_splits(self, feature):
         splits = {}
@@ -151,26 +146,17 @@ class Tree:
         return splits
 
     def get_splits(self):
-        features = self.data.columns.drop(self.outcome)
+        features = self.data.columns.drop(self.target)
         all_splits = {}
 
         for feature in features:
 
-            if check_categorical(self.data[feature]):
+            if check_if_categorical(self.data[feature]):
                 all_splits.update(self.get_categorical_splits(feature))
             else:
                 all_splits.update(self.get_numerical_splits(feature))
 
         return all_splits
-
-    # def get_best_split(self):
-    #     all_splits = self.get_splits()
-    #     ginis = {}
-
-    #     for key, split in all_splits.items():
-    #         ginis[key] = self.get_gini(split)
-
-    #     return min(ginis, key=ginis.get)
 
     def get_best_split(self):
         all_splits = self.get_splits()
@@ -182,15 +168,10 @@ class Tree:
         return max(delta_is, key=delta_is.get)
 
     def is_pure(self):
-        """Checks if node is pure
+        return len(self.data[self.target].unique()) == 1
 
-        Returns:
-            Bool -- purity of node
-        """
-        pure = len(self.data[self.outcome].unique()) == 1
-        small = len(self.data) <= self.min_samples_leaf
-
-        return pure or small
+    def too_small(self):
+        len(self.data) <= self.min_samples_leaf
 
     def too_deep(self):
         return self.level >= self.max_depth
@@ -202,18 +183,19 @@ class Tree:
         """Recursive function, that finds the best possible feature to split on in the dataset and creates a child node for each possible value of that feature.
         """
 
-        if self.is_pure() or self.too_deep() or self.no_splits():  # stop condition
-            # print(self.data[self.outcome].value_counts(),'\n\n') # debug
-            self.prediction = self.data[self.outcome].value_counts().idxmax()
+        if (self.is_pure() or self.too_deep() or
+            self.no_splits() or self.too_small()):  # stop condition
+
+            self.prediction = self.data[self.target].value_counts().idxmax()
             self.value = ' ({})'.format(
                 self.prediction)
             return
 
         best_split = self.get_best_split()
+
         self.split_feature = best_split[0]
         self.split_value = best_split[1]
         self.split_type = best_split[2]
-
 
         if self.split_type == 'categorical':
             left_data = self.data[
@@ -239,77 +221,36 @@ class Tree:
                 'splits can be either numerical or categorical'
                 )
 
-
         child_params = {
-            'outcome': self.outcome,
-            'parent_node': self,
+            'target': self.target,
             'min_samples_leaf': self.min_samples_leaf,
             'max_depth': self.max_depth,
-            'level': self.level +1
+            'level': self.level + 1
         }
 
-        self.left = Tree(left_data, **child_params)
-        self.right = Tree(right_data, **child_params)
+        self.left = Node(left_data, **child_params)
+        self.right = Node(right_data, **child_params)
 
-        # print('split level {}, {}'.format(self.level, self.value))
-        # print('left')
         self.left.split()
-        # print('right')
         self.right.split()
 
         return
 
 
 if __name__ == "__main__":
-    data = pd.read_csv('data.tab', sep='\t', header=0, index_col=0)
     data_mixed = pd.read_csv('data_mixed.csv', header=0, index_col=0)
-    tree = Tree(data, 'Decision', value='Root')
-    tree.split()
-    tree.display()
 
-    tree2 = Tree(data_mixed, 'play', value='root')
+    tree2 = Node(data_mixed, 'play', max_depth=4)
     tree2.split()
     tree2.display()
 
-    import matplotlib.pyplot as plt
+    iris = load_iris()
+    iris_df = pd.DataFrame(iris['data'], columns=iris['feature_names'])
+    iris_df['species'] = iris['target']
+    iris_df['species'] = iris_df['species'].apply(lambda i: iris['target_names'][i])
 
-    fig, ax = plt.subplots(1)
-    sns.scatterplot(data=df, x='petal length (cm)', y='petal width (cm)', hue='species')
-
-    ymin = -0.1
-    ymax = 2.7
-    xmin = 0.7
-    xmax = 7.2
-
-    vertical_lines = [
-        {'x':1.9,
-        'ymin':ymin,
-        'ymax':ymax},
-        {'x':4.8,
-        'ymin':1.7,
-        'ymax':ymax},
-        {'x':4.9,
-        'ymin':ymin,
-        'ymax':1.7}
-    ]
-
-    horizontal_lines = [
-        {'y':1.7,
-        'xmin':1.9,
-        'xmax':xmax},
-        {'y':1.6,
-        'xmin':1.9,
-        'xmax':4.9},
-        {'y':1.5,
-        'xmin':4.9,
-        'xmax':xmax}
-    ]
-
-
-
-    for line in horizontal_lines:
-        ax.hlines(**line)
-    for line in vertical_lines:
-        ax.vlines(**line)
+    tree_iris = Node(iris_df, 'species', max_depth=4)
+    tree_iris.split()
+    tree_iris.display()
 
 
