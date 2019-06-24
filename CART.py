@@ -42,6 +42,7 @@ class Node:
         self.prediction = None
         self.level = level
         self.max_depth = max_depth
+        self.leaves = []
 
     def display(self):
         lines, _, _, _ = self._display_aux()
@@ -235,6 +236,26 @@ class Node:
         self.right.split()
 
         return
+
+
+    def get_leaves(self):
+
+        if self.left is None and self.right is None:
+            return [self]
+        if self.leaves != []:
+            return self.leaves
+
+        if self.left is not None:
+            self.leaves.extend(self.left.get_leaves())
+        if self.right is not None:
+            self.leaves.extend(self.right.get_leaves())
+
+        return self.leaves
+
+    def count_leaves(self):
+        self.get_leaves()
+        return len(self.leaves)
+
 
 
 if __name__ == "__main__":
