@@ -172,7 +172,7 @@ class Node:
         return len(self.data[self.target].unique()) == 1
 
     def too_small(self):
-        len(self.data) <= self.min_samples_leaf
+        return len(self.data) <= self.min_samples_leaf
 
     def too_deep(self):
         return self.level >= self.max_depth
@@ -273,5 +273,4 @@ if __name__ == "__main__":
     tree_iris = Node(iris_df, 'species', max_depth=4)
     tree_iris.split()
     tree_iris.display()
-
 
